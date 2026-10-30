@@ -1,4 +1,5 @@
 export type { Contract } from "./contract"
 export { contract } from "./contract"
+export { runHubVisitSync } from "./lib/hub-visit-sync"
 export type { Router } from "./router"
 export { router } from "./router"

@@ -99,6 +99,86 @@ export function computePresenceIntervals(
 	return result
 }
 
+export interface SettledInterval {
+	start: number
+	// Inclusive: the last instant known for certain to be present.
+	last: number
+}
+
+// Presence that no later event can take back, merged per person and sorted.
+// Runs the same per-(person, source) walk as computePresenceIntervals, but
+// an interval that is still open only counts up to its latest present event:
+// the TTL beyond that is a projection an absent event could still cut short.
+// Everything else (ended by an absent, or expired by `now`) counts in full.
+export function computeSettledIntervals(
+	events: PresenceObservation[],
+	now: number,
+): Map<number, SettledInterval[]> {
+	const sorted = [...events].sort(
+		(a, b) =>
+			a.timestamp - b.timestamp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+	)
+
+	const open = new Map<
+		string,
+		{ personId: number; start: number; expiresAt: number; lastSeen: number }
+	>()
+	const byPerson = new Map<number, SettledInterval[]>()
+	const settle = (personId: number, start: number, last: number) => {
+		const intervals = byPerson.get(personId) ?? []
+		intervals.push({ start, last: Math.max(start, last) })
+		byPerson.set(personId, intervals)
+	}
+
+	for (const event of sorted) {
+		const key = `${event.personId}:${event.source}`
+		let current = open.get(key)
+		if (current && current.expiresAt <= event.timestamp) {
+			settle(current.personId, current.start, current.expiresAt - 1)
+			open.delete(key)
+			current = undefined
+		}
+
+		if (event.present) {
+			const expiresAt = event.timestamp + (event.ttlSeconds ?? 0) * 1000
+			if (current) {
+				current.expiresAt = expiresAt
+				current.lastSeen = event.timestamp
+			} else {
+				open.set(key, {
+					personId: event.personId,
+					start: event.timestamp,
+					expiresAt,
+					lastSeen: event.timestamp,
+				})
+			}
+		} else if (current) {
+			settle(current.personId, current.start, event.timestamp - 1)
+			open.delete(key)
+		}
+	}
+	for (const current of open.values()) {
+		const last =
+			current.expiresAt <= now ? current.expiresAt - 1 : current.lastSeen
+		settle(current.personId, current.start, last)
+	}
+
+	for (const [personId, intervals] of byPerson) {
+		intervals.sort((a, b) => a.start - b.start)
+		const merged: SettledInterval[] = []
+		for (const interval of intervals) {
+			const prev = merged[merged.length - 1]
+			if (prev && interval.start <= prev.last + 1) {
+				prev.last = Math.max(prev.last, interval.last)
+			} else {
+				merged.push({ ...interval })
+			}
+		}
+		byPerson.set(personId, merged)
+	}
+	return byPerson
+}
+
 // Intervals overlapping [start, end), clipped to it.
 export function clipIntervals(
 	intervals: PresenceInterval[],

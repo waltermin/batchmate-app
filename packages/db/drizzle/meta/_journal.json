@@ -78,6 +78,13 @@
       "when": 1793391513634,
       "tag": "0010_sloppy_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793401733405,
+      "tag": "0011_redundant_queen_noir",
+      "breakpoints": true
     }
   ]
 }

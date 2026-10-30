@@ -3,6 +3,7 @@ import {
 	check,
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 } from "drizzle-orm/sqlite-core"
@@ -104,6 +105,9 @@ export const presenceEvent = sqliteTable(
 		data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
 		// When the observation happened; createdAt is when we received it.
 		timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull(),
+		// Present events only: timestamp + ttl. Indexed so the expiry sweep can
+		// find presence that ran out without any further event arriving.
+		expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
 		createdAt: integer("created_at", { mode: "timestamp_ms" })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -111,9 +115,50 @@ export const presenceEvent = sqliteTable(
 	(table) => [
 		index("presence_event_timestamp_idx").on(table.timestamp),
 		index("presence_event_person_id_idx").on(table.personId, table.timestamp),
+		index("presence_event_expires_at_idx").on(table.expiresAt),
 		check(
 			"presence_event_ttl_check",
 			sql`(${table.present} = 1 AND ${table.ttlSeconds} BETWEEN 1 AND 86400) OR (${table.present} = 0 AND ${table.ttlSeconds} IS NULL)`,
 		),
 	],
 )
+
+// Hub visits owed to RC's hub visits API, derived from presence. One row per
+// person per hub day (6am-6am New York) caps RC writes at one per person per
+// day, however often presence events arrive. visitedAt only ever moves
+// earlier; when it does, the row goes back to pending and is re-sent.
+export const hubVisitSync = sqliteTable(
+	"hub_visit_sync",
+	{
+		personId: integer("person_id").notNull(),
+		day: text("day").notNull(),
+		// Earliest settled presence that day (6am if it rolled over).
+		visitedAt: integer("visited_at", { mode: "timestamp_ms" }).notNull(),
+		status: text("status", { enum: ["pending", "synced", "failed"] })
+			.notNull()
+			.default("pending"),
+		attempts: integer("attempts").notNull().default(0),
+		nextAttemptAt: integer("next_attempt_at", {
+			mode: "timestamp_ms",
+		}).notNull(),
+		lastError: text("last_error"),
+		syncedAt: integer("synced_at", { mode: "timestamp_ms" }),
+		createdAt: integer("created_at", { mode: "timestamp_ms" })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.personId, table.day] }),
+		index("hub_visit_sync_due_idx").on(table.status, table.nextAttemptAt),
+	],
+)
+
+// Progress markers for scheduled jobs, keyed by job name.
+export const jobCursor = sqliteTable("job_cursor", {
+	name: text("name").primaryKey(),
+	at: integer("at", { mode: "timestamp_ms" }).notNull(),
+})

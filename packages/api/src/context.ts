@@ -25,6 +25,9 @@ export interface BaseContext {
 		accessControlVirtualCardId?: string | null
 	} | null
 	session: { id: string } | null
+	// Keeps background work (like sending hub visits) running after the
+	// response is sent.
+	waitUntil: (promise: Promise<unknown>) => void
 }
 
 export interface Context

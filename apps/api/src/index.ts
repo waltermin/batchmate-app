@@ -1,4 +1,4 @@
-import { contract, router } from "@batchmate/api"
+import { contract, router, runHubVisitSync } from "@batchmate/api"
 import { createAuth } from "@batchmate/auth"
 import { createDb } from "@batchmate/db"
 import { OpenAPIGenerator } from "@orpc/openapi"
@@ -158,6 +158,7 @@ app.use("/api/v1/*", async (c, next) => {
 			rcOAuth: rcCreds,
 			user: session?.user ?? null,
 			session: session?.session ?? null,
+			waitUntil: (promise) => c.executionCtx.waitUntil(promise),
 		},
 	})
 
@@ -199,4 +200,15 @@ app.get("*", async (c) => {
 	return response
 })
 
-export default app
+export default {
+	fetch: app.fetch,
+	// Cron trigger (see wrangler.toml): settles expired presence into hub
+	// visits and sends/retries pending ones.
+	async scheduled(_controller, env, ctx) {
+		ctx.waitUntil(
+			runHubVisitSync(createDb(env.DB)).then((result) =>
+				console.log("[hub-visit-sync]", JSON.stringify(result)),
+			),
+		)
+	},
+} satisfies ExportedHandler<Env["Bindings"]>

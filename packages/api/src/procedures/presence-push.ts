@@ -1,6 +1,7 @@
 import { presenceEvent } from "@batchmate/db/schema"
 import { ORPCError } from "@orpc/server"
 import { server } from "../context"
+import { recordHubVisitsForPerson, sendHubVisits } from "../lib/hub-visit-sync"
 import { toEventDto } from "../lib/presence"
 import { requireUser } from "../lib/snack-bar"
 
@@ -26,11 +27,29 @@ export const presencePush = server.presencePush.handler(
 				source: input.source,
 				present: input.present,
 				ttlSeconds: input.present ? input.ttlSeconds : null,
+				expiresAt: input.present
+					? new Date(timestamp + input.ttlSeconds * 1000)
+					: null,
 				data: input.data ?? null,
 				timestamp: new Date(timestamp),
 			})
 			.returning()
 			.get()
+
+		// Any event can settle presence (a present confirms the time since the
+		// last one, an absent closes it), so recompute this person's hub visits
+		// now and send new ones without holding up the response. Rows are
+		// recorded first, so the scheduled job retries anything that fails.
+		const due = await recordHubVisitsForPerson(
+			context.db,
+			input.personId,
+			timestamp,
+			now,
+		)
+		if (due.length > 0) {
+			context.waitUntil(sendHubVisits(context.db, due))
+		}
+
 		return toEventDto(row)
 	},
 )
