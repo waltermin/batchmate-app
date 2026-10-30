@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "tsc --noEmit"
+		"build": "tsc --noEmit",
+		"test": "vitest run"
 	},
 	"exports": {
 		".": "./src/index.ts",
@@ -22,6 +23,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260329.1",
-		"typescript": "^5.7.0"
+		"typescript": "^5.7.0",
+		"vitest": "^5.0.5"
 	}
 }

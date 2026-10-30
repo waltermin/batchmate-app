@@ -8,6 +8,10 @@ import { hubVisits, isCheckedIn } from "./procedures/hub-visits"
 import { intercomOpen } from "./procedures/intercom-open"
 import { locations } from "./procedures/locations"
 import { memberProfile } from "./procedures/member-profile"
+import { presenceAt } from "./procedures/presence-at"
+import { presenceEvents } from "./procedures/presence-events"
+import { presencePush } from "./procedures/presence-push"
+import { presenceTimeline } from "./procedures/presence-timeline"
 import { presentationsCreate } from "./procedures/presentations-create"
 import { presentationsDelete } from "./procedures/presentations-delete"
 import { presentationsList } from "./procedures/presentations-list"
@@ -60,6 +64,10 @@ export const router = server.router({
 	snackBarAdminPayment,
 	snackBarAdminVoid,
 	snackBarAdminExport,
+	presencePush,
+	presenceEvents,
+	presenceTimeline,
+	presenceAt,
 })
 
 export type Router = typeof router

@@ -71,6 +71,13 @@
       "when": 1793173453082,
       "tag": "0009_dark_dorian_gray",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793391513634,
+      "tag": "0010_sloppy_masque",
+      "breakpoints": true
     }
   ]
 }

@@ -201,6 +201,77 @@ export type SnackLedgerEntry = z.infer<typeof SnackLedgerEntrySchema>
 export type SnackBarSummary = z.infer<typeof SnackBarSummarySchema>
 export type SnackAccount = z.infer<typeof SnackAccountSchema>
 
+const PRESENCE_MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000
+const PRESENCE_MAX_DATA_BYTES = 4096
+
+const IsoDateTimeSchema = z.string().datetime({ offset: true })
+
+const PresenceRangeFieldsSchema = z.object({
+	start: IsoDateTimeSchema,
+	end: IsoDateTimeSchema,
+	personId: z.coerce.number().int().positive().optional(),
+})
+
+function checkPresenceRange(
+	range: { start: string; end: string },
+	ctx: z.RefinementCtx,
+) {
+	const span = Date.parse(range.end) - Date.parse(range.start)
+	if (span < 0) {
+		ctx.addIssue({ code: "custom", message: "start must not be after end" })
+	} else if (span > PRESENCE_MAX_RANGE_MS) {
+		ctx.addIssue({ code: "custom", message: "range must be at most 31 days" })
+	}
+}
+
+const PresencePushBaseSchema = z.object({
+	personId: z.number().int().positive(),
+	// Short, stable id for the reporting app, e.g. "valet".
+	source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+	// Defaults to now.
+	timestamp: IsoDateTimeSchema.optional(),
+	data: z
+		.record(z.unknown())
+		.refine(
+			(d) =>
+				new TextEncoder().encode(JSON.stringify(d)).length <=
+				PRESENCE_MAX_DATA_BYTES,
+			{ message: `data must be at most ${PRESENCE_MAX_DATA_BYTES} bytes` },
+		)
+		.optional(),
+})
+
+const PresencePushInputSchema = z.discriminatedUnion("present", [
+	PresencePushBaseSchema.extend({
+		present: z.literal(true),
+		ttlSeconds: z.number().int().min(1).max(86_400),
+	}).strict(),
+	PresencePushBaseSchema.extend({
+		present: z.literal(false),
+	}).strict(),
+])
+
+const PresenceEventSchema = z.object({
+	id: z.string(),
+	personId: z.number().int(),
+	source: z.string(),
+	present: z.boolean(),
+	ttlSeconds: z.number().int().nullable(),
+	data: z.record(z.unknown()).nullable(),
+	timestamp: z.string(),
+	createdAt: z.string(),
+})
+
+const PresenceIntervalSchema = z.object({
+	start: z.string(),
+	// For an ongoing interval, when it expires unless a source renews it.
+	end: z.string(),
+	ongoing: z.boolean(),
+})
+
+export type PresenceEvent = z.infer<typeof PresenceEventSchema>
+export type PresenceInterval = z.infer<typeof PresenceIntervalSchema>
+
 export const contract = oc.router({
 	health: oc.route({ method: "GET", path: "/health" }).output(
 		z.object({
@@ -400,6 +471,56 @@ export const contract = oc.router({
 			}),
 		)
 		.output(z.object({ filename: z.string(), csv: z.string() })),
+	presencePush: oc
+		.route({ method: "POST", path: "/presence/events" })
+		.input(PresencePushInputSchema)
+		.output(PresenceEventSchema),
+	presenceEvents: oc
+		.route({ method: "GET", path: "/presence/events" })
+		.input(
+			PresenceRangeFieldsSchema.extend({
+				source: z.string().optional(),
+				cursor: z.string().optional(),
+				limit: z.coerce.number().int().min(1).max(500).optional(),
+			}).superRefine(checkPresenceRange),
+		)
+		.output(
+			z.object({
+				events: z.array(PresenceEventSchema),
+				nextCursor: z.string().nullable(),
+			}),
+		),
+	presenceTimeline: oc
+		.route({ method: "GET", path: "/presence/timeline" })
+		.input(PresenceRangeFieldsSchema.superRefine(checkPresenceRange))
+		.output(
+			z.object({
+				people: z.array(
+					z.object({
+						personId: z.number().int(),
+						intervals: z.array(PresenceIntervalSchema),
+					}),
+				),
+			}),
+		),
+	presenceAt: oc
+		.route({ method: "GET", path: "/presence/at" })
+		.input(z.object({ at: IsoDateTimeSchema.optional() }))
+		.output(
+			z.object({
+				at: z.string(),
+				people: z.array(
+					z.object({
+						personId: z.number().int(),
+						// Unbroken presence covering `at`. `since` looks back at most
+						// 24 hours before `at`; `until` is the expected expiry if the
+						// presence is still ongoing.
+						since: z.string(),
+						until: z.string(),
+					}),
+				),
+			}),
+		),
 })
 
 export type Contract = typeof contract

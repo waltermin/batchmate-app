@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm"
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import {
+	check,
+	index,
+	integer,
+	sqliteTable,
+	text,
+} from "drizzle-orm/sqlite-core"
 import { user } from "./auth-schema"
 import { typeIdColumn, typeIdPrimaryKey } from "./typeid"
 
@@ -75,5 +81,39 @@ export const snackLedgerEntry = sqliteTable(
 	(table) => [
 		index("snack_ledger_entry_user_id_idx").on(table.userId, table.createdAt),
 		index("snack_ledger_entry_created_at_idx").on(table.createdAt),
+	],
+)
+
+// Presence observations from any source (an app, a sensor, a manual
+// check-in). Append-only; a person's actual presence is computed at read
+// time by merging these (see packages/api/src/lib/presence.ts).
+export const presenceEvent = sqliteTable(
+	"presence_event",
+	{
+		id: typeIdPrimaryKey("pev")("id"),
+		// RC person id, not a batchmate user id: sources may observe people
+		// who have never signed in here.
+		personId: integer("person_id").notNull(),
+		// Identifies the reporting app (e.g. "valet") so sources never
+		// override each other's state.
+		source: text("source").notNull(),
+		present: integer("present", { mode: "boolean" }).notNull(),
+		// Present events only: how long the observation holds unless an
+		// absent event from the same source ends it sooner.
+		ttlSeconds: integer("ttl_seconds"),
+		data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
+		// When the observation happened; createdAt is when we received it.
+		timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull(),
+		createdAt: integer("created_at", { mode: "timestamp_ms" })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(table) => [
+		index("presence_event_timestamp_idx").on(table.timestamp),
+		index("presence_event_person_id_idx").on(table.personId, table.timestamp),
+		check(
+			"presence_event_ttl_check",
+			sql`(${table.present} = 1 AND ${table.ttlSeconds} BETWEEN 1 AND 86400) OR (${table.present} = 0 AND ${table.ttlSeconds} IS NULL)`,
+		),
 	],
 )
