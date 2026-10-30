@@ -19,8 +19,10 @@ export interface BaseContext {
 		name: string
 		email: string
 		rcId?: string | null
-		accessControlUserId: string
-		accessControlVirtualCardId: string
+		// Unset until door-system provisioning succeeds (and always in local
+		// dev with SKIP_ACCESS_CONTROL_PROVISIONING).
+		accessControlUserId?: string | null
+		accessControlVirtualCardId?: string | null
 	} | null
 	session: { id: string } | null
 }

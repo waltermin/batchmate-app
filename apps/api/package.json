@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "wrangler dev",
-		"dev:local": "wrangler dev --env local"
+		"dev:local": "wrangler dev --env local",
+		"build": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@orpc/openapi": "^1.0.0",

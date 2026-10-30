@@ -12,6 +12,11 @@ export const doorsOpen = server.doorsOpen.handler(
 		if (!context.user) {
 			throw new ORPCError("UNAUTHORIZED")
 		}
+		if (!context.user.accessControlVirtualCardId) {
+			throw new ORPCError("PRECONDITION_FAILED", {
+				message: "No door card is provisioned for this account",
+			})
+		}
 
 		const RECURSE_CENTER_VIRTUAL_READER_ID = 5
 
